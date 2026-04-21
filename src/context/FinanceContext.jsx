@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { fetchExchangeRates } from '../services/currencyService';
+import { db } from '../firebase';
+import { collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy } from "firebase/firestore";
 
 const FinanceContext = createContext();
 
@@ -8,79 +10,96 @@ export const useFinance = () => useContext(FinanceContext);
 
 export const FinanceProvider = ({ children }) => {
   // this is where we store all our transactions
-  const [dataList, setDataList] = useState(() => {
-    // let's try to find data from any previous keys we might have used
-    const keys = ['finance_tracker_v3', 'my_tracker_data', 'finance_data_v2', 'my_money_data'];
-    
-    for (let key of keys) {
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        console.log(`Found data in ${key}, loading it...`);
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.log("Error parsing data from", key);
-        }
-      }
-    }
-    
-    console.log("No previous data found, starting fresh.");
-    return [];
-  });
+  const [dataList, setDataList] = useState([]);
   
   const [isLoad, setIsLoad] = useState(true);
   const [currType, setCurrType] = useState('INR');
   const [allRates, setAllRates] = useState({});
   const [currs, setCurrs] = useState(['INR', 'USD', 'EUR', 'GBP', 'JPY']);
 
-  // save to local storage whenever dataList changes
+  // Connect to Firestore and get data in real-time
   useEffect(() => {
-    // we only save if we actually have a list (even empty) 
-    // but we use a stable key
-    localStorage.setItem('finance_tracker_v3', JSON.stringify(dataList));
-    console.log("Data auto-saved! Total items:", dataList.length);
+    console.log("Checking Firestore for your data...");
+    
+    // reference to our collection
+    const itemsCol = collection(db, "finance_entries");
+    const q = query(itemsCol, orderBy("date", "desc"));
+
+    // listen for any changes (live updates!)
+    const unsub = onSnapshot(q, (snapshot) => {
+      const items = [];
+      snapshot.forEach((doc) => {
+        items.push({ ...doc.data(), id: doc.id });
+      });
+      setDataList(items);
+      console.log("Got fresh data from Firebase! Count:", items.length);
+      setIsLoad(false); // hide loader once we have data
+    }, (error) => {
+      console.log("Wait, Firebase error!", error);
+      // fallback to local storage if firebase fails
+      const saved = localStorage.getItem('finance_tracker_v3');
+      if (saved) {
+        setDataList(JSON.parse(saved));
+      }
+      setIsLoad(false);
+    });
+
+    return () => unsub();
+  }, []);
+
+  // save to local storage as a backup
+  useEffect(() => {
+    if (dataList.length > 0) {
+      localStorage.setItem('finance_tracker_v3', JSON.stringify(dataList));
+      console.log("Backing up data locally...");
+    }
   }, [dataList]);
 
-  // get the latest currency rates from the api
+  // get currency rates
   useEffect(() => {
     const fetchStuff = async () => {
-      console.log("Fetching currency rates, please wait...");
       try {
         const res = await fetchExchangeRates('INR');
         setAllRates(res.rates);
-        
-        // just take the first few currencies to keep it simple
         if (res.rates) {
-          const keys = Object.keys(res.rates);
-          setCurrs(keys.slice(0, 12));
+          setCurrs(Object.keys(res.rates).slice(0, 12));
         }
       } catch (e) {
-        console.log("Error fetching rates, using defaults instead", e);
-      } finally {
-        // give it a small delay so the loader is visible
-        setTimeout(() => {
-          setIsLoad(false);
-          console.log("App is ready for use!");
-        }, 1000);
+        console.log("Currency rate error", e);
       }
     };
     fetchStuff();
   }, []);
 
-  const addNew = (entry) => {
-    const finalObj = { 
-      ...entry, 
-      id: uuidv4(), 
-      date: entry.date || new Date().toISOString() 
-    };
-    setDataList([finalObj, ...dataList]);
-    console.log("New entry added to list:", finalObj);
+  const addNew = async (entry) => {
+    console.log("Adding new entry to Firebase...");
+    try {
+      const finalObj = { 
+        ...entry, 
+        date: entry.date || new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+      // add to Firestore
+      await addDoc(collection(db, "finance_entries"), finalObj);
+      console.log("Successfully added to cloud!");
+    } catch (e) {
+      console.log("Firebase add failed, adding locally only", e);
+      // local fallback
+      const localObj = { ...entry, id: uuidv4(), date: entry.date || new Date().toISOString() };
+      setDataList([localObj, ...dataList]);
+    }
   };
 
-  const deleteOne = (id) => {
-    const newList = dataList.filter(item => item.id !== id);
-    setDataList(newList);
-    console.log("Item removed, id was:", id);
+  const deleteOne = async (id) => {
+    console.log("Deleting from Firebase, id:", id);
+    try {
+      await deleteDoc(doc(db, "finance_entries", id));
+      console.log("Deleted from cloud!");
+    } catch (e) {
+      console.log("Firebase delete failed", e);
+      // local fallback
+      setDataList(dataList.filter(item => item.id !== id));
+    }
   };
 
   const getMoney = (val) => {
