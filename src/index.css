@@ -85,3 +85,7 @@ h2 {
   padding: 0 24px;
 }
 
+.highlighted {
+  color: #a1a1aa; /* That muted gray look from the photo */
+}
+

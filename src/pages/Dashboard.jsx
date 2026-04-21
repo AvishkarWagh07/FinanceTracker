@@ -1,104 +1,103 @@
 import { useFinance } from '../context/FinanceContext';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import TransactionItem from '../components/transactions/TransactionItem';
+import EmptyState from '../components/transactions/EmptyState';
+import NewsWidget from '../components/NewsWidget';
 import './Dashboard.css';
 
 const Dashboard = () => {
-  const { transactions, deleteTransaction, formatAmount, isWait } = useFinance();
+  const { transactions, deleteTransaction, formatAmount, isAppLoading } = useFinance();
 
-  console.log("Dashboard rendering... total tx:", transactions.length);
+  console.log("Dashboard is loading up...");
 
-  // basic calculations
-  const totalIncome = transactions
-    .filter(t => t.type?.toLowerCase() === 'income')
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+  // work out the totals manually to be safe
+  let myIncome = 0;
+  let myExpense = 0;
 
-  const totalExpenses = transactions
-    .filter(t => t.type?.toLowerCase() === 'expense')
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+  transactions.forEach(t => {
+    if (t.type === 'income') {
+      myIncome += Number(t.amount);
+    } else {
+      myExpense += Number(t.amount);
+    }
+  });
 
-  const netBalance = totalIncome - totalExpenses;
+  const myBalance = myIncome - myExpense;
 
-  // show only 5 recent ones
-  const recentStuff = [...transactions]
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 5);
+  // just show the latest 4 things
+  const latestItems = [...transactions]
+    .sort((a, b) => {
+      return new Date(b.date) - new Date(a.date);
+    })
+    .slice(0, 4);
 
-  if (isWait) {
-    return <div className="container"><h3>Wait a sec, loading your wallet...</h3></div>;
+  if (isAppLoading) {
+    return (
+      <div className="container" style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '70vh'}}>
+        <div className="loader-student">Wait... loading your wallet</div>
+      </div>
+    );
   }
 
   return (
     <div className="container">
-      {/* Hero section */}
+      {/* Top section with text */}
       <section className="hero">
-        <span className="badge badge-gray">FINANCIAL OVERVIEW</span>
-        <h1>Track your world's **money** story.</h1>
-        <p className="hero-desc">Income, expenses, and savings across every category — updated in real time as you spend.</p>
+        <span className="badge badge-gray">MY OVERVIEW</span>
+        <h1>Track your <span className="highlighted">money</span> story.</h1>
+        <p className="hero-desc">Keep an eye on every rupee. Watch your savings grow over time!</p>
       </section>
 
-      {/* Summary Cards */}
+      {/* Box grid for totals */}
       <motion.div 
         className="summary-grid"
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 0.6 }}
       >
         <div className="bento-card">
-          <p className={`card-val ${netBalance >= 0 ? 'green' : 'red'}`}>{formatAmount(netBalance)}</p>
-          <p className="card-label">NET BALANCE</p>
+          <p className={`card-val ${myBalance >= 0 ? 'green' : 'red'}`}>{formatAmount(myBalance)}</p>
+          <p className="card-label">CURRENT BALANCE</p>
         </div>
         <div className="bento-card">
-          <p className="card-val green">{formatAmount(totalIncome)}</p>
-          <p className="card-label">TOTAL INCOME</p>
+          <p className="card-val green">{formatAmount(myIncome)}</p>
+          <p className="card-label">TOTAL EARNINGS</p>
         </div>
         <div className="bento-card">
-          <p className="card-val red">{formatAmount(totalExpenses)}</p>
-          <p className="card-label">TOTAL EXPENSES</p>
+          <p className="card-val red">{formatAmount(myExpense)}</p>
+          <p className="card-label">TOTAL SPENT</p>
         </div>
         <div className="bento-card">
           <p className="card-val gray">{transactions.length}</p>
-          <p className="card-label">TRANSACTIONS</p>
+          <p className="card-label">NO. OF ENTRIES</p>
         </div>
       </motion.div>
 
-      {/* Recent Activity Header */}
-      <div className="section-header-flex">
+      {/* Latest transactions list */}
+      <div className="section-header-flex" style={{marginTop: '40px'}}>
         <p className="country-count">RECENT ACTIVITY</p>
-        <Link to="/transactions" className="view-all-btn">View All</Link>
+        <Link to="/transactions" className="view-all-btn">Show all history</Link>
       </div>
 
-      {/* Recent Transactions Grid */}
       <div className="country-grid">
-        {recentStuff.length === 0 ? (
-          <div className="bento-card empty-card">
-            <p>No transactions yet. Add some to see them here!</p>
-            <Link to="/transactions/new" className="add-btn-inline">Add Transaction</Link>
-          </div>
+        {latestItems.length === 0 ? (
+          <EmptyState message="You haven't added any transactions yet. Try adding one!" />
         ) : (
-          recentStuff.map(t => (
-            <div key={t.id} className="bento-card country-card">
-              <div className="country-header">
-                <div className="country-info">
-                  <span className="country-name">{t.category || 'General'}</span>
-                </div>
-                <span className={`badge ${t.type === 'expense' ? 'badge-red' : 'badge-green'}`}>
-                  {t.type}
-                </span>
-              </div>
-              <div className="country-stats">
-                <div className="stat-col">
-                  <p className={`stat-val ${t.type === 'expense' ? 'red' : 'green'}`}>
-                    {formatAmount(t.amount)}
-                  </p>
-                  <p className="stat-label">AMOUNT</p>
-                </div>
-              </div>
-              <p className="stat-footer">{t.description || 'No description'} • {new Date(t.date).toLocaleDateString()}</p>
-            </div>
-          ))
+          latestItems.map(item => {
+            return (
+              <TransactionItem 
+                key={item.id} 
+                transaction={item} 
+                onDelete={deleteTransaction} 
+              />
+            );
+          })
         )}
       </div>
+
+      {/* Some news at the bottom */}
+      <NewsWidget />
     </div>
   );
 };
